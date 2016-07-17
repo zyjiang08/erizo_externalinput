@@ -174,7 +174,6 @@ namespace erizo {
 
         av_read_play(context_);//play RTSP
         int gotDecodedFrame = 0;
-        int length;
         startTime_ = av_gettime();
 
         ELOG_INFO("Start playing external input %s", url_.c_str() );
@@ -214,10 +213,9 @@ namespace erizo {
                     }
                     lastAudioPts_ = avpacket_.pts;
 
+                    ELOG_DEBUG("Audio and package %d ==> length, dts=%ld,duration=%d,pos=%ld, pts=%ld", avpacket_.size, avpacket_.dts, avpacket_.duration, avpacket_.pos, avpacket_.pts);
 
-                        ELOG_DEBUG("Audio and package %d ==> length, dts=%ld,duration=%d,pos=%ld, pts=%ld", avpacket_.size, avpacket_.dts, avpacket_.duration, avpacket_.pos, avpacket_.pts);
-
-                    length = op_->packageAudio(avpacket_.data, avpacket_.size, decodedBuffer_.get(), avpacket_.pts);
+                    op_->packageAudio(avpacket_.data, avpacket_.size, decodedBuffer_.get(), avpacket_.pts);
                     /*if (length>0){
                         ELOG_DEBUG("Audio and package %d ==> %d, dts=%ld,duration=%d,pos=%ld, pts=%ld", avpacket_.size, length,avpacket_.dts, avpacket_.duration, avpacket_.pos, avpacket_.pts);
                         audioSink_->deliverAudioData(reinterpret_cast<char*>(decodedBuffer_.get()),length);

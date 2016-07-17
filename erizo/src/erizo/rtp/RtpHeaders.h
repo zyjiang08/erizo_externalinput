@@ -164,27 +164,6 @@ namespace erizo{
       }
   };
 
-/*class AudioLevelExtension {
-    public:
-      uint32_t len:4;   //3
-      uint32_t id:4;    //1
-      uint32_t level:7;
-      uint32_t v:1;     // v has to be after level, 
-      uint32_t padding:16;   //0
-
-      inline void init()
-      {
-          id = 1;
-          len = 2;
-          level = 100;
-          v = 1;
-          padding = 0;
-      }
-
-  };
-*/
-
-
 class AudioLevelExtension {
     public:
       uint32_t len:4;   //3
@@ -195,11 +174,10 @@ class AudioLevelExtension {
       inline void init()
       {
           id = 1;
-          len = 0;
+          len = 2;  // 2 means 3, as 0 means 1
           level = 100;
           v = 1;
       }
-
   };
 
 class AbsSendTimeExtension {
