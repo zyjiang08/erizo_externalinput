@@ -18,6 +18,8 @@ namespace erizo {
         lastAudioPts_=0;
     }
 
+    extern MediaSink* audioSink;
+
     ExternalInput::~ExternalInput(){
         ELOG_DEBUG("Destructor ExternalInput %s" , url_.c_str());
         ELOG_DEBUG("Closing ExternalInput");
@@ -32,6 +34,10 @@ namespace erizo {
     }
 
     int ExternalInput::init(){
+
+        // for OutputProcessor->packageAudio()
+        audioSink = audioSink_;
+
         context_ = avformat_alloc_context();
         av_register_all();
         avcodec_register_all();
@@ -55,11 +61,8 @@ namespace erizo {
             return res;
         }
 
-        //VideoCodecInfo info;
-
         MediaInfo om;
         AVStream *st, *audio_st;
-
 
         int streamNo = av_find_best_stream(context_, AVMEDIA_TYPE_VIDEO, -1, -1, NULL, 0);
         if (streamNo < 0){
@@ -69,12 +72,13 @@ namespace erizo {
             om.hasVideo = true;
             video_stream_index_ = streamNo;
             st = context_->streams[streamNo]; 
+
+            av_dump_format(context_, streamNo, url_.c_str(), 0);
         }
 
         int audioStreamNo = av_find_best_stream(context_, AVMEDIA_TYPE_AUDIO, -1, -1, NULL, 0);
         if (audioStreamNo < 0){
             ELOG_WARN("No Audio stream found");
-            ELOG_DEBUG("Has video, audio stream number %d. time base = %d / %d ", video_stream_index_, st->time_base.num, st->time_base.den);
             //return streamNo;
         }else{
 
@@ -165,9 +169,8 @@ namespace erizo {
     void ExternalInput::receiveRtpData(unsigned char*rtpdata, int len) {
         if (audioSink_!=NULL){
             memcpy(sendVideoBuffer_, rtpdata, len);
-            audioSink_->deliverAudioData(sendVideoBuffer_, len);
+            audioSink_->deliverVideoData(sendVideoBuffer_, len);
         }
-
     }
 
     void ExternalInput::receiveLoop(){
@@ -180,7 +183,16 @@ namespace erizo {
         while(av_read_frame(context_,&avpacket_)>=0&& running_==true){
             AVPacket orig_pkt = avpacket_;
             if (needTranscoding_){
-                if(avpacket_.stream_index == video_stream_index_){//packet is video               
+                if(avpacket_.stream_index == video_stream_index_){
+
+                    // Speed control.
+                    int64_t pts = av_rescale(lastPts_, 1000000, (long int)video_time_base_);
+                    int64_t now = av_gettime() - startTime_;         
+                    if (pts > now){
+                        av_usleep(pts - now);
+                    }
+                    lastPts_ = avpacket_.pts;
+
                     inCodec_.decodeVideo(avpacket_.data, avpacket_.size, decodedBuffer_.get(), bufflen_, &gotDecodedFrame);
                     RawDataPacket packetR;
                     if (gotDecodedFrame){
@@ -195,7 +207,6 @@ namespace erizo {
                 }
             }else{
                 if(avpacket_.stream_index == video_stream_index_){//packet is video               
-                    // av_rescale(input, new_scale, old_scale)          
                     int64_t pts = av_rescale(lastPts_, 1000000, (long int)video_time_base_);
                     int64_t now = av_gettime() - startTime_;         
                     if (pts > now){
@@ -216,10 +227,6 @@ namespace erizo {
                     ELOG_DEBUG("Audio and package %d ==> length, dts=%ld,duration=%d,pos=%ld, pts=%ld", avpacket_.size, avpacket_.dts, avpacket_.duration, avpacket_.pos, avpacket_.pts);
 
                     op_->packageAudio(avpacket_.data, avpacket_.size, decodedBuffer_.get(), avpacket_.pts);
-                    /*if (length>0){
-                        ELOG_DEBUG("Audio and package %d ==> %d, dts=%ld,duration=%d,pos=%ld, pts=%ld", avpacket_.size, length,avpacket_.dts, avpacket_.duration, avpacket_.pos, avpacket_.pts);
-                        audioSink_->deliverAudioData(reinterpret_cast<char*>(decodedBuffer_.get()),length);
-                    }*/
                 }
             }
             av_free_packet(&orig_pkt);

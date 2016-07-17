@@ -4,6 +4,7 @@
 #include "../rtp/RtpVP8Fragmenter.h"
 #include "../rtp/RtpHeaders.h"
 #include "codecs/VideoCodec.h"
+#include <MediaDefinitions.h>
 
 #include <math.h>   // sqrt, round etc.
 
@@ -11,10 +12,13 @@ extern "C" {
 #include <libavutil/mathematics.h>
 }
 
+
 namespace erizo {
 
     DEFINE_LOGGER(InputProcessor, "media.InputProcessor");
     DEFINE_LOGGER(OutputProcessor, "media.OutputProcessor");
+
+    MediaSink* audioSink = NULL;
 
     InputProcessor::InputProcessor() {
 
@@ -457,7 +461,7 @@ namespace erizo {
         }
 
         rms = (length == 0) ? 0 : sqrt(rms / length);
-        
+
         /*
          * The audio level is a logarithmic measure of the
          * rms level of an audio sample relative to a reference
@@ -501,13 +505,25 @@ namespace erizo {
         return (int)round(db);
     }
 
+    static void receiveRtpData(unsigned char*rtpdata, int len) {
+    if (audioSink!=NULL){
+      static char sendAudioBuffer[300];
+      
+      assert(len<=300);
 
+      memcpy(sendAudioBuffer, rtpdata, len);
+      audioSink->deliverAudioData(sendAudioBuffer, len);
+    }
 
-    int OutputProcessor::packageAudio(unsigned char* inBuff2, int inBuffLen2,
+  }
+
+  int OutputProcessor::packageAudio(unsigned char* inBuff2, int inBuffLen2,
             unsigned char* outBuff, long int pts) {
 
-        const int FrameSize = 160;    // 20ms => 160 * 1000 * 1/8000 ( time_base )
+        // 20ms => 160 * 1000 * 1/8000 ( time_base )
+        const int FrameSize = 160;    
         static unsigned char extraBuff[FrameSize];
+
         static int extraBuffLen = 0;
 
         if (audioPackager == 0) {
@@ -521,7 +537,7 @@ namespace erizo {
         pts -= extraBuffLen;
         int inBuffLen = inBuffLen2 + extraBuffLen;
 
-        ELOG_DEBUG("Take the extra, in all %d, and pts starts %ld", inBuffLen, pts);
+        ELOG_DEBUG("Take the extra %d, in all %d, and pts starts %ld", extraBuffLen, inBuffLen, pts);
 
         unsigned char* inBuff = new unsigned char[inBuffLen+10];
         unsigned char* allocated = inBuff;  // for delete[] at end.
@@ -537,40 +553,30 @@ namespace erizo {
         {
             RtpHeader head;
             head.setSeqNumber(audioSeqnum_++);
-            //    head.setTimestamp(millis*8);
             head.setMarker(false);
+
+                head.setExtension(true);
+                head.setExtId(48862); //0xbede profile
+                head.setExtLength(1);       // only 1 ext, Audio level.
+
             if (pts==-1){
-                //      head.setTimestamp(audioSeqnum_*160);
-                //head.setTimestamp(av_rescale(audioSeqnum_, (mediaInfo.audioCodec.sampleRate/1000), 1));
             }else{
-                //head.setTimestamp(pts*8);
-                //head.setTimestamp(av_rescale(pts, mediaInfo.audioCodec.sampleRate,1000));
-                //int64_t repts = av_rescale(pts, 8000,1000);
-                //ELOG_INFO("repts is %ld", repts);
-
+                // No need to rescale as already audio time base.
                 head.setTimestamp(pts);
-                
-                if (1)
-                {
-                    AudioLevelExtension ext;
-                    ext.init();
 
-                    int audioLevel = - calculateAudioLevel(inBuff, 0, FrameSize, 127);
+                AudioLevelExtension ext;
+                ext.init();
+                int audioLevel = -calculateAudioLevel(inBuff, 0,FrameSize, 127);
 
-                    ELOG_DEBUG("Calculated audio level=%d", audioLevel);
-                    
-                    // set audio level ext
-                    head.setExtension(true);
-                    head.setExtId(48862); //0xbede profile
-                    head.setExtLength(1);       // only 1 ext, Audio level.
+                ELOG_DEBUG("Calculated audio level=%d", audioLevel);
 
-                    ext.level = audioLevel;
-                    uint16_t val = *(reinterpret_cast<uint16_t*>(&ext));
-                    //val = htonl(val); // don't need it.
-                    head.extensions = val;
+                ext.level = audioLevel;
+                uint16_t val = *(reinterpret_cast<uint16_t*>(&ext));
+                //val = htonl(val); // don't need it.
+                head.extensions = val;
 
-                    ELOG_DEBUG("head.extensions = %hu", head.extensions);
-                }
+                ELOG_DEBUG("head.extensions = %hu", head.extensions);
+
                 // next timestamp will +FrameSize;
                 pts += FrameSize;
                 sizesum += FrameSize;
@@ -581,16 +587,13 @@ namespace erizo {
             //head.setPayloadType(mediaInfo.rtpAudioInfo.PT);
             head.setPayloadType(0);
 
-            //    memcpy (rtpAudioBuffer_, &head, head.getHeaderLength());
-            //    memcpy(&rtpAudioBuffer_[head.getHeaderLength()], inBuff, inBuffLen);
             memcpy(outBuff, &head, head.getHeaderLength());
             memcpy(&outBuff[head.getHeaderLength()], inBuff, FrameSize);
 
             inBuff += FrameSize;
             inBuffLen -= FrameSize;
 
-            //			sink_->sendData(rtpBuffer_, l);
-            rtpReceiver_->receiveRtpData(outBuff, (FrameSize + head.getHeaderLength()));
+            receiveRtpData(outBuff, (FrameSize + head.getHeaderLength()));
             ELOG_DEBUG("Sent %d bytes", FrameSize + head.getHeaderLength());
         }while (inBuffLen >= FrameSize);
 

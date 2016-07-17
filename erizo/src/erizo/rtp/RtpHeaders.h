@@ -174,7 +174,7 @@ class AudioLevelExtension {
       inline void init()
       {
           id = 1;
-          len = 2;  // 2 means 3, as 0 means 1
+          len = 0;  // 2 means 3, as 0 means 1
           level = 100;
           v = 1;
       }
