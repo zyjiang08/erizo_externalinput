@@ -2,12 +2,15 @@
 #include "../WebRtcConnection.h"
 #include <cstdio>
 
+#include "libavutil/opt.h"
 #include <boost/cstdint.hpp>
 #include <sys/time.h>
 #include <arpa/inet.h>
 #include "libavutil/time.h"
+#include "codecs/AudioCodec.h"
 
 namespace erizo {
+    AVFormatContext* input_format_context = NULL;	// for AudioCodec
     DEFINE_LOGGER(ExternalInput, "media.ExternalInput");
     ExternalInput::ExternalInput(const std::string& inputUrl):url_(inputUrl){
         sourcefbSink_=NULL;
@@ -39,6 +42,7 @@ namespace erizo {
         audioSink = audioSink_;
 
         context_ = avformat_alloc_context();
+	input_format_context = context_;
         av_register_all();
         avcodec_register_all();
         avformat_network_init();
@@ -63,6 +67,7 @@ namespace erizo {
 
         MediaInfo om;
         AVStream *st, *audio_st;
+	AVCodec* audioCodec = NULL;
 
         int streamNo = av_find_best_stream(context_, AVMEDIA_TYPE_VIDEO, -1, -1, NULL, 0);
         if (streamNo < 0){
@@ -76,20 +81,22 @@ namespace erizo {
             av_dump_format(context_, streamNo, url_.c_str(), 0);
         }
 
-        int audioStreamNo = av_find_best_stream(context_, AVMEDIA_TYPE_AUDIO, -1, -1, NULL, 0);
+        int audioStreamNo = av_find_best_stream(context_, AVMEDIA_TYPE_AUDIO, -1, -1, &audioCodec, 0);
         if (audioStreamNo < 0){
             ELOG_WARN("No Audio stream found");
             //return streamNo;
         }else{
 
             av_dump_format(context_, audioStreamNo, url_.c_str(), 0);
-
+	    
             om.hasAudio = true;
             audio_stream_index_ = audioStreamNo;
             audio_st = context_->streams[audio_stream_index_];
             ELOG_DEBUG("Has Audio, audio stream number %d. time base = %d / %d ", audio_stream_index_, audio_st->time_base.num, audio_st->time_base.den);
             audio_time_base_ = audio_st->time_base.den;
             ELOG_DEBUG("Audio Time base %d", audio_time_base_);
+	
+	    inAudioCodec_.initDecoder(audio_st->codec, audioCodec);
             if (audio_st->codec->codec_id==AV_CODEC_ID_PCM_MULAW){
                 ELOG_DEBUG("PCM U8");
                 om.audioCodec.sampleRate=8000;

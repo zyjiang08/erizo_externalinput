@@ -11,6 +11,14 @@
 extern "C" {
 #include <libavutil/avutil.h>
 #include <libavcodec/avcodec.h>
+#include <libswresample/swresample.h>
+#include "libavutil/audio_fifo.h"
+#include "libavutil/avassert.h"
+#include "libavutil/avstring.h"
+#include "libavutil/channel_layout.h"
+#include "libavutil/frame.h"
+#include "libavutil/opt.h"
+
 }
 
 namespace erizo {
@@ -25,9 +33,7 @@ namespace erizo {
       int closeEncoder ();
 
     private:
-      AVCodec* aCoder_;
-      AVCodecContext* aCoderContext_;
-      AVFrame* aFrame_;
+      AVCodec* codec_;
   };
 
   class AudioDecoder {
@@ -36,16 +42,12 @@ namespace erizo {
       AudioDecoder();
       virtual ~AudioDecoder();
       int initDecoder (const AudioCodecInfo& info);
-      int initDecoder (AVCodecContext* context);
-      int decodeAudio(unsigned char* inBuff, int inBuffLen,
-          unsigned char* outBuff, int outBuffLen, int* gotFrame);
+      int initDecoder (AVCodecContext* context, AVCodec* dec_codec);
+      int int decodeAudio(AVPacket& input_packet, unsigned char* outbuf);
       int closeDecoder();
 
     private:
-      AVCodec* aDecoder_;
-      AVCodecContext* aDecoderContext_;
-      AVFrame* dFrame_;
+      AVCodec* codec_;
   };
-
 }
 #endif /* AUDIOCODEC_H_ */
