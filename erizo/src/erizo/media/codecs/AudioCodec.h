@@ -18,6 +18,7 @@ extern "C" {
 #include "libavutil/channel_layout.h"
 #include "libavutil/frame.h"
 #include "libavutil/opt.h"
+#include <libavformat/avformat.h>
 
 }
 
@@ -28,12 +29,12 @@ namespace erizo {
     public:
       AudioEncoder();
       virtual ~AudioEncoder();
-      int initEncoder (const AudioCodecInfo& info);
-      int encodeAudio (unsigned char* inBuffer, int nSamples, AVPacket* pkt);
-      int closeEncoder ();
+      int encodeAudio(unsigned char* inBuffer, int nSamples, AVPacket* pkt);
+      int closeEncoder();
 
     private:
       AVCodec* codec_;
+      AVCodecContext* codecContext_;
   };
 
   class AudioDecoder {
@@ -41,10 +42,21 @@ namespace erizo {
     public:
       AudioDecoder();
       virtual ~AudioDecoder();
-      int initDecoder (const AudioCodecInfo& info);
-      int initDecoder (AVCodecContext* context, AVCodec* dec_codec);
-      int int decodeAudio(AVPacket& input_packet, unsigned char* outbuf);
+      int initDecoder(AVCodecContext* context, AVCodec* dec_codec);
+      int decodeAudio(AVPacket& input_packet, unsigned char* outbuf);
       int closeDecoder();
+
+      ////////////////added func so logger inside available//////////////////
+      int init_resampler(AVCodecContext *input_codec_context, AVCodecContext *output_codec_context);
+      int add_samples_to_fifo(AVAudioFifo *fifo, uint8_t **converted_input_samples, const int frame_size);
+
+      int init_fifo(AVAudioFifo **fifo);
+      int init_output_frame(AVFrame **frame, AVCodecContext *output_codec_context, int frame_size);
+      int encode_package_audio_frame(AVFrame *frame, unsigned char* outbuf);
+      int load_encode_and_write(unsigned char* outbuf);
+      int init_converted_samples(uint8_t ***converted_input_samples, AVCodecContext *output_codec_context, int frame_size);
+      int convert_samples(const uint8_t **input_data, uint8_t **converted_data, const int frame_size, SwrContext *resample_context);
+     ////////////// 
 
     private:
       AVCodec* codec_;
