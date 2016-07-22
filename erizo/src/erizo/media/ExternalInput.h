@@ -7,6 +7,7 @@
 #include <queue>
 #include "../MediaDefinitions.h"
 #include "codecs/VideoCodec.h"
+#include "codecs/AudioCodec.h"
 #include "MediaProcessor.h"
 #include "boost/thread.hpp"
 #include "logger.h"

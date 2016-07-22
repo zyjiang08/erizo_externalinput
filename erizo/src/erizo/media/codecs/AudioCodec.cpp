@@ -449,13 +449,13 @@ namespace erizo {
 
         if (error < 0)
         {
-            ELOG_DEBUG(get_error_text(error));
+            ELOG_DEBUG("error %s", get_error_text(error));
             return error;
         }
 
         if (*data_present <= 0)
         {
-            ELOG_DEBUG(" data not present ");
+            ELOG_DEBUG("data not present");
             return 0;
         }
 
@@ -484,7 +484,7 @@ namespace erizo {
         if (add_samples_to_fifo(fifo, converted_input_samples,
                     input_frame->nb_samples))
         {
-            ELOG_WARN(" add_samples to fifo failed !!");
+            ELOG_WARN("add_samples to fifo failed !!");
         }
 
         // meanwhile, encode; package
