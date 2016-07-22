@@ -10,7 +10,9 @@
 #include "codecs/AudioCodec.h"
 
 namespace erizo {
-    AVFormatContext* input_format_context = NULL;	// for AudioCodec
+
+    AudioDecoder audioDecoder;
+    extern const char* get_error_text(const int error);
     DEFINE_LOGGER(ExternalInput, "media.ExternalInput");
     ExternalInput::ExternalInput(const std::string& inputUrl):url_(inputUrl){
         sourcefbSink_=NULL;
@@ -25,7 +27,6 @@ namespace erizo {
 
     ExternalInput::~ExternalInput(){
         ELOG_DEBUG("Destructor ExternalInput %s" , url_.c_str());
-        ELOG_DEBUG("Closing ExternalInput");
         running_ = false;
         thread_.join();
         if (needTranscoding_)
@@ -42,7 +43,6 @@ namespace erizo {
         audioSink = audioSink_;
 
         context_ = avformat_alloc_context();
-	input_format_context = context_;
         av_register_all();
         avcodec_register_all();
         avformat_network_init();
@@ -51,28 +51,23 @@ namespace erizo {
         avpacket_.data = NULL;
         ELOG_INFO("Trying to open input from url %s", url_.c_str());
         int res = avformat_open_input(&context_, url_.c_str(),NULL,NULL);
-        char errbuff[500];
-        ELOG_DEBUG("Opening input result %d", res);
         if(res != 0){
-            av_strerror(res, (char*)(&errbuff), 500);
-            ELOG_ERROR("Error opening input %s", errbuff);
+            ELOG_ERROR("Error opening input %s", get_error_text(res));
             return res;
         }
         res = avformat_find_stream_info(context_,NULL);
         if(res<0){
-            av_strerror(res, (char*)(&errbuff), 500);
-            ELOG_ERROR("Error finding stream info %s", errbuff);
+            ELOG_ERROR("Error finding stream info %s", get_error_text(res));
             return res;
         }
 
         MediaInfo om;
         AVStream *st, *audio_st;
-	AVCodec* audioCodec = NULL;
+        AVCodec* audioCodec = NULL;
 
         int streamNo = av_find_best_stream(context_, AVMEDIA_TYPE_VIDEO, -1, -1, NULL, 0);
         if (streamNo < 0){
             ELOG_WARN("No Video stream found");
-            //return streamNo;
         }else{
             om.hasVideo = true;
             video_stream_index_ = streamNo;
@@ -84,19 +79,16 @@ namespace erizo {
         int audioStreamNo = av_find_best_stream(context_, AVMEDIA_TYPE_AUDIO, -1, -1, &audioCodec, 0);
         if (audioStreamNo < 0){
             ELOG_WARN("No Audio stream found");
-            //return streamNo;
         }else{
-
             av_dump_format(context_, audioStreamNo, url_.c_str(), 0);
-	    
+
             om.hasAudio = true;
             audio_stream_index_ = audioStreamNo;
             audio_st = context_->streams[audio_stream_index_];
-            ELOG_DEBUG("Has Audio, audio stream number %d. time base = %d / %d ", audio_stream_index_, audio_st->time_base.num, audio_st->time_base.den);
+            ELOG_DEBUG("Audio, audio stream number %d. time base = %d / %d ", audio_stream_index_, audio_st->time_base.num, audio_st->time_base.den);
             audio_time_base_ = audio_st->time_base.den;
-            ELOG_DEBUG("Audio Time base %d", audio_time_base_);
-	
-	    inAudioCodec_.initDecoder(audio_st->codec, audioCodec);
+
+            audioDecoder.initDecoder(audio_st->codec, audioCodec);
             if (audio_st->codec->codec_id==AV_CODEC_ID_PCM_MULAW){
                 ELOG_DEBUG("PCM U8");
                 om.audioCodec.sampleRate=8000;
@@ -139,7 +131,6 @@ namespace erizo {
 
             bufflen_ = st->codec->width*st->codec->height*3/2;
             decodedBuffer_.reset((unsigned char*) malloc(bufflen_));
-
 
             om.processorType = RTP_ONLY;
             om.videoCodec.codec = VIDEO_CODEC_VP8;

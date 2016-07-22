@@ -7,7 +7,6 @@
 #include <queue>
 #include "../MediaDefinitions.h"
 #include "codecs/VideoCodec.h"
-#include "codecs/AudioCodec.h"
 #include "MediaProcessor.h"
 #include "boost/thread.hpp"
 #include "logger.h"
@@ -31,11 +30,9 @@ namespace erizo{
       void receiveRtpData(unsigned char* rtpdata, int len);
       int sendPLI();
 
-
     private:
       boost::scoped_ptr<OutputProcessor> op_;
       VideoDecoder inCodec_;
-      AudioDecoder inAudioCodec_;
       boost::scoped_array<unsigned char> decodedBuffer_;
       char sendVideoBuffer_[2000];
 
