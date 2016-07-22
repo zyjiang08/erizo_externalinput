@@ -9,6 +9,7 @@
 #include <cstdlib>
 #include <string.h>
 
+#define OUTPUT_SAMPLE_RATE 8000
 #define OUTPUT_BIT_RATE 64000
 #define OUTPUT_CHANNELS 1
 #define OUTPUT_SAMPLE_FORMAT AV_SAMPLE_FMT_U8
@@ -50,7 +51,7 @@ namespace erizo {
         packet->size = 0;
     }
 
-    int init_input_frame(AVFrame **frame)
+    int init_frame(AVFrame **frame)
     {
         if (!(*frame = av_frame_alloc())) {
             return AVERROR(ENOMEM);
@@ -138,9 +139,12 @@ namespace erizo {
         /** Store the new samples in the FIFO buffer. */
         if (av_audio_fifo_write(fifo, (void **)converted_input_samples,
                     frame_size) < frame_size) {
-            ELOG_DEBUG("Could not write data to FIFO");
+            ELOG_WARN("Could not write data to FIFO");
             return AVERROR_EXIT;
         }
+
+        ELOG_DEBUG("added frame to fifo, now size %d", av_audio_fifo_size(fifo));
+
         return 0;
     }
     /** Initialize a FIFO buffer for the audio samples to be encoded. */
@@ -202,8 +206,7 @@ namespace erizo {
         AVPacket output_packet;
         int error;
         init_packet(&output_packet);
-        output_packet.data = NULL;
-        output_packet.size = 0;
+
         /**
          * Encode the audio frame and store it in the temporary packet.
          * The output audio stream encoder is used to do this.
@@ -217,12 +220,12 @@ namespace erizo {
         }
 
         // Package it, and send it.
-        int ret = packageAudio(output_packet.data, output_packet.size, outbuf);
+        //int ret = packageAudio(output_packet.data, output_packet.size, outbuf);
 
         //free it.
         av_free_packet(&output_packet);
 
-        return ret;
+        return 0;
     }
 
     /**
@@ -243,7 +246,7 @@ namespace erizo {
         /** Initialize temporary storage for one output frame. */
         if (init_output_frame(&output_frame, output_codec_context, frame_size))
         {
-            ELOG_WARN(" init_output_frame failed!!");
+            ELOG_WARN(" init_output_frame failed!! frame_size=%d", frame_size);
             return 0;
         }
         /**
@@ -285,7 +288,7 @@ namespace erizo {
          */
         if (!(*converted_input_samples = (uint8_t**)calloc(output_codec_context->channels,
                         sizeof(**converted_input_samples)))) {
-            ELOG_WARN( "Could not allocate converted input sample pointers");
+            ELOG_WARN("Could not allocate converted input sample pointers");
             return AVERROR(ENOMEM);
         }
 
@@ -297,7 +300,7 @@ namespace erizo {
                         output_codec_context->channels,
                         frame_size,
                         output_codec_context->sample_fmt, 0)) < 0) {
-            ELOG_WARN("Could not allocate converted input samples ", get_error_text(error));
+            ELOG_WARN("Could not allocate converted input samples %s", get_error_text(error));
             av_freep(&(*converted_input_samples)[0]);
             free(*converted_input_samples);
             return error;
@@ -320,7 +323,7 @@ namespace erizo {
         if ((error = swr_convert(resample_context,
                         converted_data, frame_size,
                         input_data    , frame_size)) < 0) {
-            ELOG_DEBUG( "Could not convert input samples ", get_error_text(error));
+            ELOG_DEBUG("Could not convert input samples %s", get_error_text(error));
             return error;
         }
 
@@ -331,7 +334,6 @@ namespace erizo {
     AudioEncoder::AudioEncoder(){
         codec_ = NULL;
         input_codec_context=NULL;
-        aFrame_ = NULL;
     }
 
     AudioEncoder::~AudioEncoder(){
@@ -339,99 +341,24 @@ namespace erizo {
         this->closeEncoder();
     }
 
-    int AudioEncoder::initEncoder (const AudioCodecInfo& mediaInfo){
+    int AudioEncoder::encodeAudio (unsigned char* inBuffer, int nSamples, AVPacket* pkt) 
+    {
+        AVFrame *frame;
+        init_frame(&frame);
 
-        ELOG_DEBUG("Init audioEncoder begin");
-        codec_ = avcodec_find_encoder(mediaInfo.codec);
-        if (!codec_) {
-            ELOG_DEBUG("Audio Codec not found");
-            return false;
-        }
-
-        input_codec_context = avcodec_alloc_context3(codec_);
-        if (!input_codec_context) {
-            ELOG_DEBUG("Memory error allocating audio coder context");
-            return false;
-        }
-
-        input_codec_context->sample_fmt = OUTPUT_SAMPLE_FORMAT;
-        input_codec_context->bit_rate = mediaInfo.bitRate;
-        input_codec_context->sample_rate = mediaInfo.sampleRate;
-        input_codec_context->channels = OUTPUT_CHANNELS;
-        char errbuff[500];
-        int res = avcodec_open2(input_codec_context, codec_, NULL);
-        if(res != 0){
-            av_strerror(res, (char*)(&errbuff), 500);
-            ELOG_DEBUG("fail when opening input %s", errbuff);
-            return -1;
-        }
-        ELOG_DEBUG("Init audioEncoder end");
-        return true;
-    }
-
-    int AudioEncoder::encodeAudio (unsigned char* inBuffer, int nSamples, AVPacket* pkt) {
-        AVFrame *frame = av_frame_alloc();
-        if (!frame) {
-            ELOG_ERROR("could not allocate audio frame");
-            return 0;
-        }
-        int ret, got_output, buffer_size;
-
-        frame->nb_samples = input_codec_context->frame_size;
-        frame->format = input_codec_context->sample_fmt;
-        //	frame->channel_layout = input_codec_context->channel_layout;
-
-        /* the codec gives us the frame size, in samples,
-         * we calculate the size of the samples buffer in bytes */
-        ELOG_DEBUG("channels %d, frame_size %d, sample_fmt %d",
-                input_codec_context->channels, input_codec_context->frame_size,
-                input_codec_context->sample_fmt);
-        buffer_size = av_samples_get_buffer_size(NULL, input_codec_context->channels,
-                input_codec_context->frame_size, input_codec_context->sample_fmt, 0);
-        uint16_t* samples = (uint16_t*) malloc(buffer_size);
-        if (!samples) {
-            ELOG_ERROR("could not allocate %d bytes for samples buffer",buffer_size);
-            return 0;
-        }
-        /* setup the data pointers in the AVFrame */
-        ret = avcodec_fill_audio_frame(frame, input_codec_context->channels,
-                input_codec_context->sample_fmt, (const uint8_t*) samples, buffer_size,
-                0);
-        if (ret < 0) {
-            free(samples);
-            ELOG_ERROR("could not setup audio frame");
-            return 0;
-        }
-
-        ret = avcodec_encode_audio2(input_codec_context, pkt, frame, &got_output);
-        if (ret < 0) {
-            ELOG_ERROR("error encoding audio frame");
-            free(samples);
-            return 0;
-        }
-        if (got_output) {
-            //fwrite(pkt.data, 1, pkt.size, f);
-            ELOG_DEBUG("Got OUTPUT");
-        }
-
-        return ret;
+        return 0;
     }
 
     int AudioEncoder::closeEncoder (){
-        if (input_codec_context!=NULL){
+        if (codecContext_!=NULL){
             avcodec_close(input_codec_context);
-        }
-        if (aFrame_!=NULL){
-            av_frame_free(&aFrame_);
         }
         return 0;
     }
 
-
     AudioDecoder::AudioDecoder(){
         codec_ = NULL;
         output_codec_context = NULL;
-        dFrame_ = NULL;
     }
 
     AudioDecoder::~AudioDecoder(){
@@ -439,7 +366,8 @@ namespace erizo {
         this->closeDecoder();
     }
 
-    int AudioDecoder::initDecoder(AVCodecContext* context, AVCodec* dec_codec){
+    int AudioDecoder::initDecoder(AVCodecContext* context, AVCodec* dec_codec)
+    {
         if (dec_codec != NULL)
         {
             codec_ = dec_codec;
@@ -464,8 +392,7 @@ namespace erizo {
         int error;
 
         if (!(output_codec = avcodec_find_encoder(AV_CODEC_ID_PCM_U8))) {
-            ELOG_DEBUG( "Could not find an AAC encoder.");
-
+            ELOG_DEBUG( "Could not find the encoder.");
             return 0;
         }
         avctx = avcodec_alloc_context3(output_codec);
@@ -474,32 +401,25 @@ namespace erizo {
             return 0;
         }
 
-        memcpy(outBuff, decBuff, outSize);
-        outBuff += outSize;
-        decSize += outSize;
         /**
          * Set the basic encoder parameters.
          * The input file's sample rate is used to avoid a sample rate conversion.
          */
         avctx->channels       = OUTPUT_CHANNELS;
         avctx->channel_layout = av_get_default_channel_layout(OUTPUT_CHANNELS);
-        avctx->sample_rate    = context->sample_rate;
-        avctx->sample_fmt     = output_codec->sample_fmts[0];
+        avctx->sample_rate    = OUTPUT_SAMPLE_RATE;
+        avctx->sample_fmt     = output_codec->sample_fmts[0];   // should be u8
         avctx->bit_rate       = OUTPUT_BIT_RATE;
         /** Allow the use of the experimental AAC encoder */
         avctx->strict_std_compliance = FF_COMPLIANCE_EXPERIMENTAL;
-        ELOG_DEBUG(" avcodec_alloc_context3(output_codec) done");
 
         /** Open the encoder for the audio stream to use it later. */
         if ((error = avcodec_open2(avctx, output_codec, NULL)) < 0) {
-            ELOG_DEBUG( "Could not open output codec ", get_error_text(error));
-
+            ELOG_DEBUG("Could not open output codec %s", get_error_text(error));
             return 0;
         }
 
-        free(decBuff);
-        ELOG_DEBUG(" avcodec_open2(avctx, output_codec done");
-
+        ELOG_DEBUG("avcodec_open2(avctx, output_codec done");
 
         /** Save the encoder context for easier access later. */
         output_codec_context = avctx;
@@ -510,6 +430,7 @@ namespace erizo {
 
             return 0;
         }
+
         ELOG_DEBUG(" init_resampler done");
 
         init_fifo(&fifo);
@@ -520,16 +441,15 @@ namespace erizo {
     }
     int AudioDecoder::decodeAudio(AVPacket& input_packet, unsigned char* outbuf)    {
         AVFrame* input_frame;
-        init_input_frame(&input_frame);
+        init_frame(&input_frame);
 
-        ELOG_DEBUG("input packet size "<<input_packet.size);
+        ELOG_DEBUG("decoding input packet, size %d", input_packet.size);
         int* data_present = 0;
         int error = avcodec_decode_audio4(input_codec_context, input_frame, data_present,&input_packet);
 
         if (error < 0)
         {
-            ELOG_DEBUG( get_error_text(error));
-
+            ELOG_DEBUG(get_error_text(error));
             return error;
         }
 
@@ -543,11 +463,9 @@ namespace erizo {
 
         /** Initialize the temporary storage for the converted input samples. */
         uint8_t **converted_input_samples = NULL;
-        if (init_converted_samples(&converted_input_samples, output_codec_context,
-                    input_frame->nb_samples))
+        if (init_converted_samples(&converted_input_samples, output_codec_context, input_frame->nb_samples))
         {
-            ELOG_DEBUG(" init_converted_samples fails");
-
+            ELOG_DEBUG("init_converted_samples fails");
             return 0;
         }
 
@@ -557,7 +475,7 @@ namespace erizo {
          */
         if (convert_samples((const uint8_t**)input_frame->extended_data, converted_input_samples,input_frame->nb_samples, resample_context))
         {
-            ELOG_WARN(" convert_samples failed!!");
+            ELOG_WARN("convert_samples failed!!");
 
             return 0;
         }
@@ -573,94 +491,9 @@ namespace erizo {
         return load_encode_and_write(outbuf);
     }
 
-    int AudioDecoder::decodeAudio(unsigned char* inBuff, int inBuffLen,
-            unsigned char* outBuff, int outBuffLen, int* gotFrame){
-
-        AVPacket avpkt;
-        int outSize;
-        int decSize = 0;
-        int len = -1;
-        uint8_t *decBuff = (uint8_t*) malloc(16000);
-
-        av_init_packet(&avpkt);
-        avpkt.data = (unsigned char*) inBuff;
-        avpkt.size = inBuffLen;
-
-        while (avpkt.size > 0) {
-
-            outSize = 16000;
-
-            //Puede fallar. Cogido de libavcodec/utils.c del paso de avcodec_decode_audio3 a avcodec_decode_audio4
-            //avcodec_decode_audio3(aDecoderContext, (short*)decBuff, &outSize, &avpkt);
-
-            AVFrame frame;
-            int got_frame = 0;
-
-            //      aDecoderContext->get_buffer = avcodec_default_get_buffer;
-            //      aDecoderContext->release_buffer = avcodec_default_release_buffer;
-
-            len = avcodec_decode_audio4(output_codec_context, &frame, &got_frame, &avpkt);
-            if (len >= 0 && got_frame) {
-                int plane_size;
-                //int planar = av_sample_fmt_is_planar(aDecoderContext->sample_fmt);
-                int data_size = av_samples_get_buffer_size(&plane_size,
-                        output_codec_context->channels, frame.nb_samples,
-                        output_codec_context->sample_fmt, 1);
-                if (outSize < data_size) {
-                    ELOG_DEBUG("output buffer size is too small for the current frame");
-                    free(decBuff);
-                    return AVERROR(EINVAL);
-                }
-
-                memcpy(decBuff, frame.extended_data[0], plane_size);
-
-                /* Si hay más de un canal
-                   if (planar && aDecoderContext->channels > 1) {
-                   uint8_t *out = ((uint8_t *)decBuff) + plane_size;
-                   for (int ch = 1; ch < aDecoderContext->channels; ch++) {
-                   memcpy(out, frame.extended_data[ch], plane_size);
-                   out += plane_size;
-                   }
-                   }
-                   */
-                outSize = data_size;
-            } else {
-                outSize = 0;
-            }
-
-            if (len < 0) {
-                ELOG_DEBUG("Error al decodificar audio");
-                free(decBuff);
-                return -1;
-            }
-
-            avpkt.size -= len;
-            avpkt.data += len;
-
-            if (outSize <= 0) {
-                continue;
-            }
-
-            memcpy(outBuff, decBuff, outSize);
-            outBuff += outSize;
-            decSize += outSize;
-        }
-
-        free(decBuff);
-
-        if (outSize <= 0) {
-            ELOG_DEBUG("Error de decodificación de audio debido a tamaño incorrecto");
-            return -1;
-        }
-
-        return decSize;
-    }
     int AudioDecoder::closeDecoder(){
         if (output_codec_context!=NULL){
             avcodec_close(output_codec_context);
-        }
-        if (dFrame_!=NULL){
-            av_frame_free(&dFrame_);
         }
         return 0;
     }
