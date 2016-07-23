@@ -32,7 +32,6 @@ namespace erizo {
             }
         }
 
-    extern AVFormatContext* input_format_context;
     AVCodecContext *input_codec_context = NULL, *output_codec_context = NULL;
     SwrContext *resample_context = NULL;
     AVAudioFifo *fifo = NULL;
@@ -91,16 +90,14 @@ namespace erizo {
             return AVERROR(ENOMEM);
         }
 
-        ELOG_DEBUG( "resample_context = swr_alloc_set_opts done");
 
         /**
          * Perform a sanity check so that the number of converted samples is
          * not greater than the number of samples to be converted.
          * If the sample rates differ, this case has to be handled differently
          */
-        av_assert0(output_codec_context->sample_rate == input_codec_context->sample_rate);
 
-        ELOG_DEBUG( "av_assert0 done");
+        ELOG_DEBUG( "audio input sample_rate = %d, out %d", output_codec_context->sample_rate, output_codec_context->sample_rate);
 
         /** Open the resampler with the specified parameters. */
         if ((error = swr_init(resample_context)) < 0) {
@@ -108,7 +105,6 @@ namespace erizo {
             swr_free(&resample_context);
             return error;
         }
-        ELOG_DEBUG( "av_assert0 done");
 
 
         /** Open the resampler with the specified parameters. */
@@ -368,14 +364,12 @@ namespace erizo {
 
     int AudioDecoder::initDecoder(AVCodecContext* context, AVCodec* dec_codec)
     {
-        if (dec_codec != NULL)
-        {
-            codec_ = dec_codec;
-            ELOG_DEBUG("codec_ assigned");
-        }
+        ELOG_DEBUG("initDecoder started");
+
+        codec_ = dec_codec;
 
         //input_codec_context = avcodec_alloc_context3(codec_);
-        input_codec_context = context;  // ok?
+        input_codec_context = context;  // ok?  ok
         if (!input_codec_context) {
             ELOG_DEBUG("AudioDecoder Error allocating audio decoder context");
             return 0;
@@ -385,6 +379,7 @@ namespace erizo {
             ELOG_DEBUG("AudioDecoder initDecoder Error open2 audio decoder");
             return 0;
         }
+
 
         // Init output encoder as well.
         AVCodecContext *avctx          = NULL;
@@ -407,11 +402,14 @@ namespace erizo {
          */
         avctx->channels       = OUTPUT_CHANNELS;
         avctx->channel_layout = av_get_default_channel_layout(OUTPUT_CHANNELS);
-        avctx->sample_rate    = OUTPUT_SAMPLE_RATE;
+        //avctx->sample_rate    = OUTPUT_SAMPLE_RATE;
+        avctx->sample_rate    = input_codec_context->sample_rate;
         avctx->sample_fmt     = output_codec->sample_fmts[0];   // should be u8
         avctx->bit_rate       = OUTPUT_BIT_RATE;
         /** Allow the use of the experimental AAC encoder */
         avctx->strict_std_compliance = FF_COMPLIANCE_EXPERIMENTAL;
+
+        av_assert0(avctx->sample_fmt == AV_SAMPLE_FMT_U8);
 
         /** Open the encoder for the audio stream to use it later. */
         if ((error = avcodec_open2(avctx, output_codec, NULL)) < 0) {
@@ -419,23 +417,19 @@ namespace erizo {
             return 0;
         }
 
-        ELOG_DEBUG("avcodec_open2(avctx, output_codec done");
-
         /** Save the encoder context for easier access later. */
         output_codec_context = avctx;
+
         /** Initialize the resampler to be able to convert audio sample formats. */
         if (init_resampler(input_codec_context, output_codec_context))
         {
             ELOG_DEBUG(" init resampleer failed !!");
-
             return 0;
         }
 
-        ELOG_DEBUG(" init_resampler done");
-
         init_fifo(&fifo);
 
-        ELOG_DEBUG(" init_fifo done");
+        ELOG_DEBUG("initDecoder end");
 
         return 1;
     }

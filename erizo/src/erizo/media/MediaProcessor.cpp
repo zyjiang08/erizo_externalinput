@@ -391,10 +391,10 @@ namespace erizo {
     void OutputProcessor::receiveRawData(RawDataPacket& packet) {
         int hasFrame = 0;
         if (packet.type == VIDEO) {
-            //      ELOG_DEBUG("Encoding video: size %d", packet.length);
-            int a = vCoder.encodeVideo(packet.data, packet.length, encodedBuffer_,UNPACKAGED_BUFFER_SIZE,hasFrame);
-            if (a > 0)
-                this->packageVideo(encodedBuffer_, a, packagedBuffer_);
+            ELOG_DEBUG("Encoding video: size %d", packet.length);
+            int len = vCoder.encodeVideo(packet.data, packet.length, encodedBuffer_,UNPACKAGED_BUFFER_SIZE,hasFrame);
+            if (len > 0)
+                this->packageVideo(encodedBuffer_, len, packagedBuffer_);
         } else {
             //      int a = this->encodeAudio(packet.data, packet.length, &pkt);
             //      if (a > 0) {

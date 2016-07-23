@@ -39,7 +39,7 @@ namespace erizo {
 
     int ExternalInput::init(){
 
-        // for OutputProcessor->packageAudio()
+        // for OutputProcessor->packageAudio
         audioSink = audioSink_;
 
         context_ = avformat_alloc_context();
@@ -167,6 +167,7 @@ namespace erizo {
     void ExternalInput::receiveRtpData(unsigned char*rtpdata, int len) {
         if (audioSink_!=NULL){
             memcpy(sendVideoBuffer_, rtpdata, len);
+            ELOG_DEBUG("deliver Video len %d", len);
             audioSink_->deliverVideoData(sendVideoBuffer_, len);
         }
     }
@@ -178,24 +179,28 @@ namespace erizo {
         startTime_ = av_gettime();
 
         ELOG_INFO("Start playing external input %s", url_.c_str() );
+        ELOG_INFO("needTranscoding_=%d", needTranscoding_);
+        
         while(av_read_frame(context_,&avpacket_)>=0&& running_==true){
             AVPacket orig_pkt = avpacket_;
             if (needTranscoding_){
                 if(avpacket_.stream_index == video_stream_index_){
 
                     // Speed control.
-                    int64_t pts = av_rescale(lastPts_, 1000000, (long int)video_time_base_);
-                    int64_t now = av_gettime() - startTime_;         
-                    if (pts > now){
-                        av_usleep(pts - now);
-                    }
-                    lastPts_ = avpacket_.pts;
+                    //int64_t pts = av_rescale(lastPts_, 1000000, (long int)video_time_base_);
+                    //int64_t now = av_gettime() - startTime_;         
+                    //if (pts > now){
+                    //    av_usleep(pts - now);
+                    //}
+                    //lastPts_ = avpacket_.pts;
 
-                    inCodec_.decodeVideo(avpacket_.data, avpacket_.size, decodedBuffer_.get(), bufflen_, &gotDecodedFrame);
+                    ELOG_DEBUG("read video packet size %d", avpacket_.size);
+                    int len = inCodec_.decodeVideo(avpacket_.data, avpacket_.size, decodedBuffer_.get(), bufflen_, &gotDecodedFrame);
                     RawDataPacket packetR;
                     if (gotDecodedFrame){
+                        ELOG_DEBUG("gotDecodedFrame length %d",len);
                         packetR.data = decodedBuffer_.get();
-                        packetR.length = bufflen_;
+                        packetR.length = len;
                         packetR.type = VIDEO;
                         queueMutex_.lock();
                         packetQueue_.push(packetR);
