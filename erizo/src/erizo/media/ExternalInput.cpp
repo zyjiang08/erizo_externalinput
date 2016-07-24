@@ -142,8 +142,7 @@ namespace erizo {
 
             om.hasAudio = true;
             if (om.hasAudio) {
-                om.audioCodec.sampleRate = 8000;
-                om.audioCodec.bitRate = 64000;
+                om.audioCodec.sampleRate = 48000;
             }
 
             op_.reset(new OutputProcessor());

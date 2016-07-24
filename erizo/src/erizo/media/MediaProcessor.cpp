@@ -57,7 +57,6 @@ namespace erizo {
         }
         if (mediaInfo.hasAudio) {
             ELOG_DEBUG("Init AUDIO processor");
-            mediaInfo.audioCodec.codec = AUDIO_CODEC_PCM_U8;
             decodedAudioBuffer_ = (unsigned char*) malloc(UNPACKAGED_BUFFER_SIZE);
             unpackagedAudioBuffer_ = (unsigned char*) malloc(
                     UNPACKAGED_BUFFER_SIZE);
@@ -122,28 +121,6 @@ namespace erizo {
 
     bool InputProcessor::initAudioDecoder() {
 
-        aDecoder = avcodec_find_decoder(static_cast<AVCodecID>(mediaInfo.audioCodec.codec));
-        if (!aDecoder) {
-            ELOG_DEBUG("Decoder de audio no encontrado");
-            return false;
-        }
-
-        aDecoderContext = avcodec_alloc_context3(aDecoder);
-        if (!aDecoderContext) {
-            ELOG_DEBUG("Error de memoria en decoder de audio");
-            return false;
-        }
-
-        aDecoderContext->sample_fmt = AV_SAMPLE_FMT_S16;
-        aDecoderContext->bit_rate = mediaInfo.audioCodec.bitRate;
-        aDecoderContext->sample_rate = mediaInfo.audioCodec.sampleRate;
-        aDecoderContext->channels = 1;
-
-        if (avcodec_open2(aDecoderContext, aDecoder, NULL) < 0) {
-            ELOG_DEBUG("Error al abrir el decoder de audio");
-            return false;
-        }
-        audioDecoder = 1;
         return true;
 
     }
@@ -163,90 +140,12 @@ namespace erizo {
             unsigned char* outBuff) {
 
         if (audioDecoder == 0) {
-            ELOG_DEBUG("No se han inicializado los parámetros del audioDecoder");
+            //ELOG_DEBUG("No se han inicializado los parámetros del audioDecoder");
             return -1;
         }
 
-        AVPacket avpkt;
-        int outSize;
-        int decSize = 0;
-        int len = -1;
-        uint8_t *decBuff = (uint8_t*) malloc(16000);
 
-        av_init_packet(&avpkt);
-        avpkt.data = (unsigned char*) inBuff;
-        avpkt.size = inBuffLen;
-
-        while (avpkt.size > 0) {
-
-            outSize = 16000;
-
-            //Puede fallar. Cogido de libavcodec/utils.c del paso de avcodec_decode_audio3 a avcodec_decode_audio4
-            //avcodec_decode_audio3(aDecoderContext, (short*)decBuff, &outSize, &avpkt);
-
-            AVFrame frame;
-            int got_frame = 0;
-
-            //      aDecoderContext->get_buffer = avcodec_default_get_buffer;
-            //      aDecoderContext->release_buffer = avcodec_default_release_buffer;
-
-            len = avcodec_decode_audio4(aDecoderContext, &frame, &got_frame,
-                    &avpkt);
-            if (len >= 0 && got_frame) {
-                int plane_size;
-                //int planar = av_sample_fmt_is_planar(aDecoderContext->sample_fmt);
-                int data_size = av_samples_get_buffer_size(&plane_size,
-                        aDecoderContext->channels, frame.nb_samples,
-                        aDecoderContext->sample_fmt, 1);
-                if (outSize < data_size) {
-                    ELOG_DEBUG("output buffer size is too small for the current frame");
-                    free(decBuff);
-                    return AVERROR(EINVAL);
-                }
-
-                memcpy(decBuff, frame.extended_data[0], plane_size);
-
-                /* Si hay más de un canal
-                   if (planar && aDecoderContext->channels > 1) {
-                   uint8_t *out = ((uint8_t *)decBuff) + plane_size;
-                   for (int ch = 1; ch < aDecoderContext->channels; ch++) {
-                   memcpy(out, frame.extended_data[ch], plane_size);
-                   out += plane_size;
-                   }
-                   }
-                   */
-                outSize = data_size;
-            } else {
-                outSize = 0;
-            }
-
-            if (len < 0) {
-                ELOG_DEBUG("Error al decodificar audio");
-                free(decBuff);
-                return -1;
-            }
-
-            avpkt.size -= len;
-            avpkt.data += len;
-
-            if (outSize <= 0) {
-                continue;
-            }
-
-            memcpy(outBuff, decBuff, outSize);
-            outBuff += outSize;
-            decSize += outSize;
-        }
-
-        free(decBuff);
-
-        if (outSize <= 0) {
-            ELOG_DEBUG("Error de decodificación de audio debido a tamaño incorrecto");
-            return -1;
-        }
-
-        return decSize;
-
+        return 0;
     }
 
     int InputProcessor::unpackageAudio(unsigned char* inBuff, int inBuffLen, unsigned char* outBuff) {
@@ -359,7 +258,7 @@ namespace erizo {
             mediaInfo.audioCodec.bitRate = 64000;
             encodedAudioBuffer_ = (unsigned char*) malloc(UNPACKAGED_BUFFER_SIZE);
             packagedAudioBuffer_ = (unsigned char*) malloc(UNPACKAGED_BUFFER_SIZE);
-            this->initAudioCoder();
+            //this->initAudioCoder();
             this->initAudioPackager();
 
         }
@@ -507,9 +406,9 @@ namespace erizo {
 
     static void receiveRtpData(unsigned char*rtpdata, int len) {
     if (audioSink!=NULL){
-      static char sendAudioBuffer[300];
+      static char sendAudioBuffer[1600];
       
-      assert(len<=300);
+      assert(len<=1600);
 
       memcpy(sendAudioBuffer, rtpdata, len);
       audioSink->deliverAudioData(sendAudioBuffer, len);
@@ -520,12 +419,9 @@ namespace erizo {
   int OutputProcessor::packageAudio(unsigned char* data, int datalen,
              long int pts) {
 
-        // 20ms => 160 * 1000 * 1/8000 ( time_base )
-        const int FrameSize = 160;    //*6 because samplerate 48000/8000
-        static unsigned char extraBuff[FrameSize];
-
-        static int extraBuffLen = 0;
-        static unsigned char outBuff[1500];
+        // pcm 20ms  => 160 * 1000 * 1/8000 ( time_base )
+        // opus 20ms => 960 * 1000 * 1/48000
+        // const int FrameSize = 960;   
 
         if (audioPackager == 0) {
             ELOG_DEBUG("No se ha inicializado el codec audio RTP!!");
@@ -533,81 +429,51 @@ namespace erizo {
         }
 
         ELOG_DEBUG("packaugeAudio len %d, pts %ld", datalen, pts);
-        int sizesum = 0;
 
-        // Process the data left from last packet.
-        pts -= extraBuffLen;
-        int inBuffLen = datalen + extraBuffLen;
+        unsigned char* inBuff = new unsigned char[datalen + 30];
 
-        ELOG_DEBUG("Take the extra %d, in all %d, and pts starts %ld", extraBuffLen, inBuffLen, pts);
-
-        unsigned char* inBuff = new unsigned char[inBuffLen+10];
-        unsigned char* allocated = inBuff;  // for delete[] at end.
-
-        memcpy(inBuff, extraBuff, extraBuffLen);
-        memcpy(inBuff+extraBuffLen, data, datalen);
 
         //    timeval time;
         //    gettimeofday(&time, NULL);
         //    long millis = (time.tv_sec * 1000) + (time.tv_usec / 1000);
 
-        do
-        {
             RtpHeader head;
             head.setSeqNumber(audioSeqnum_++);
             head.setMarker(false);
 
-            head.setExtension(true);
-            head.setExtId(48862); //0xbede profile
-            head.setExtLength(1);       // only 1 ext, Audio level.
+            head.setExtension(false);
+            //head.setExtId(48862); //0xbede profile
+            //head.setExtLength(1);       // only 1 ext, Audio level.
 
-            if (pts==-1){
-            }else{
                 // No need to rescale as already audio time base.
                 head.setTimestamp(pts);
 
-                AudioLevelExtension ext;
-                ext.init();
-                int audioLevel = -calculateAudioLevel(inBuff, 0,FrameSize, 127);
+                //AudioLevelExtension ext;
+                //ext.init();
+                //int audioLevel = -calculateAudioLevel(inBuff, 0,FrameSize, 127);
 
                 //ELOG_DEBUG("Calculated audio level=%d", audioLevel);
 
-                ext.level = audioLevel;
-                uint16_t val = *(reinterpret_cast<uint16_t*>(&ext));
+                //ext.level = audioLevel;
+                //uint16_t val = *(reinterpret_cast<uint16_t*>(&ext));
                 //val = htonl(val); // don't need it.
-                head.extensions = val;
+                //head.extensions = val;
 
                 //ELOG_DEBUG("head.extensions = %hu", head.extensions);
 
                 // next timestamp will +FrameSize;
-                pts += FrameSize;
-                sizesum += FrameSize;
-            }
-
             head.setSSRC(44444);
 
             //head.setPayloadType(mediaInfo.rtpAudioInfo.PT);
-            head.setPayloadType(0);
+            head.setPayloadType(109);
 
-            memcpy(outBuff, &head, head.getHeaderLength());
-            memcpy(&outBuff[head.getHeaderLength()], inBuff, FrameSize);
+            memcpy(inBuff, &head, head.getHeaderLength());
+            memcpy(&inBuff[head.getHeaderLength()], data, datalen);
 
-            inBuff += FrameSize;
-            inBuffLen -= FrameSize;
+            receiveRtpData(inBuff, (datalen + head.getHeaderLength()));
+            ELOG_DEBUG("Sent %d bytes", datalen + head.getHeaderLength());
 
-            receiveRtpData(outBuff, (FrameSize + head.getHeaderLength()));
-            ELOG_DEBUG("Sent %d bytes", FrameSize + head.getHeaderLength());
-        }while (inBuffLen >= FrameSize);
-
-        extraBuffLen = inBuffLen;
-
-        memcpy(extraBuff, inBuff, inBuffLen);
-        ELOG_DEBUG("extra data len %d", inBuffLen);
-
-        delete[] allocated;
-
-        ELOG_DEBUG("all sizesum is %d", sizesum);
-        return sizesum;
+        return 1;
     }
 
     int OutputProcessor::packageVideo(unsigned char* inBuff, int buffSize, unsigned char* outBuff, long int pts) {

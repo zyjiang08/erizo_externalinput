@@ -9,10 +9,9 @@
 #include <cstdlib>
 #include <string.h>
 
-#define OUTPUT_SAMPLE_RATE 8000
-#define OUTPUT_BIT_RATE 64000
-#define OUTPUT_CHANNELS 1
-#define OUTPUT_SAMPLE_FORMAT AV_SAMPLE_FMT_U8
+#define OUTPUT_SAMPLE_RATE 48000
+#define OUTPUT_CHANNELS 2
+#define OUTPUT_CODEC_ID AV_CODEC_ID_OPUS
 
 #define PACKAGED_BUFFER_SIZE 2000*3
 
@@ -147,7 +146,7 @@ namespace erizo {
     int AudioDecoder::init_fifo(AVAudioFifo **fifo)
     {
         /** Create the FIFO buffer based on the specified output sample format. */
-        if (!(*fifo = av_audio_fifo_alloc(OUTPUT_SAMPLE_FORMAT, OUTPUT_CHANNELS, 1)))
+        if (!(*fifo = av_audio_fifo_alloc(output_codec_context->sample_fmt, output_codec_context->channels, 1)))
         {
             ELOG_DEBUG("Could not allocate FIFO");
             return AVERROR(ENOMEM);
@@ -201,6 +200,9 @@ namespace erizo {
         /** Packet used for temporary storage. */
         init_packet(&output_packet);
 
+        ELOG_DEBUG("encode frame nb_samples=%d", frame->nb_samples);
+
+
         /**
          * Encode the audio frame and store it in the temporary packet.
          * The output audio stream encoder is used to do this.
@@ -213,7 +215,6 @@ namespace erizo {
             av_free_packet(&output_packet);
             return error;
         }
-
 
         if (0 == data_present)
         {
@@ -246,6 +247,8 @@ namespace erizo {
             ELOG_WARN(" init_output_frame failed!! frame_size=%d", frame_size);
             return 0;
         }
+
+
         /**
          * Read as many samples from the FIFO buffer as required to fill the frame.
          * The samples are stored in the frame temporarily.
@@ -255,6 +258,9 @@ namespace erizo {
             av_frame_free(&output_frame);
             return 0;
         }
+        
+        ELOG_DEBUG("fifo read %d, now left %d", frame_size, av_audio_fifo_size(fifo));
+
         /** Encode one frame worth of audio samples. */
         int pktlen = encode_audio_frame(output_frame, output_packet);
         if (pktlen <= 0)
@@ -368,32 +374,28 @@ namespace erizo {
         ELOG_DEBUG("initDecoder started");
 
         codec_ = dec_codec;
-
         input_codec_context = context;  // ok?  ok
-        if (!input_codec_context) {
-            ELOG_DEBUG("AudioDecoder Error allocating audio decoder context");
-            return 0;
-        }
 
-        if (avcodec_open2(input_codec_context, codec_, NULL) < 0) {
+       if (avcodec_open2(input_codec_context, codec_, NULL) < 0) {
             ELOG_DEBUG("AudioDecoder initDecoder Error open2 audio decoder");
             return 0;
         }
 
-        ELOG_DEBUG("decoder sample_fmts[0] is %s", av_get_sample_fmt_name(codec_->sample_fmts[0]));
-        ELOG_DEBUG("decoder sample_fmt is %s", av_get_sample_fmt_name(input_codec_context->sample_fmt));
-        ELOG_DEBUG("decoder frame size is %d", input_codec_context->frame_size);
+        ELOG_DEBUG("input sample_fmts[0] is %s", av_get_sample_fmt_name(codec_->sample_fmts[0]));
+        ELOG_DEBUG("input sample_fmt is %s", av_get_sample_fmt_name(input_codec_context->sample_fmt));
+        ELOG_DEBUG("input frame size is %d, bitrate=%d", input_codec_context->frame_size, input_codec_context->bit_rate);
 
         // Init output encoder as well.
         AVCodec *output_codec          = NULL;
         int error;
 
-        if (!(output_codec = avcodec_find_encoder(AV_CODEC_ID_PCM_U8))) {
+        if (!(output_codec = avcodec_find_encoder(OUTPUT_CODEC_ID))) {
             ELOG_DEBUG( "Could not find the encoder.");
             return 0;
         }
         output_codec_context = avcodec_alloc_context3(output_codec);
-        if (!output_codec_context) {
+        if (!output_codec_context) 
+        {
             ELOG_DEBUG( "Could not allocate an encoding context");
             return 0;
         }
@@ -404,11 +406,11 @@ namespace erizo {
          */
         output_codec_context->channels       = OUTPUT_CHANNELS;
         output_codec_context->channel_layout = av_get_default_channel_layout(OUTPUT_CHANNELS);
-        output_codec_context->sample_rate    = OUTPUT_SAMPLE_RATE;
-        //output_codec_context->sample_rate    = input_codec_context->sample_rate;
+        output_codec_context->sample_rate    = input_codec_context->sample_rate;
         output_codec_context->sample_fmt     = output_codec->sample_fmts[0]; //u8
-        output_codec_context->bit_rate       = OUTPUT_BIT_RATE;
-
+        output_codec_context->bit_rate       = 510000;
+        
+        
         /** Allow the use of the experimental feature */
         output_codec_context->strict_std_compliance = FF_COMPLIANCE_EXPERIMENTAL;
 
@@ -418,8 +420,14 @@ namespace erizo {
             return 0;
         }
         
-        output_codec_context->frame_size = 1024;
-        av_assert0(output_codec_context->sample_fmt == AV_SAMPLE_FMT_U8);
+        ELOG_DEBUG("output sample_fmts[0] is %s", av_get_sample_fmt_name(output_codec->sample_fmts[0]));
+        ELOG_DEBUG("output sample_fmt is %s", av_get_sample_fmt_name(output_codec_context->sample_fmt));
+        ELOG_DEBUG("output frame size is %d", output_codec_context->frame_size);
+        
+        //output_codec_context->frame_size = input_codec_context->frame_size;
+        output_codec_context->frame_size = 960; // 20 ms frame. 20/1000 * 48000
+
+        //av_assert0(output_codec_context->sample_fmt == AV_SAMPLE_FMT_U8);
         av_assert0(output_codec_context->frame_size > 0);
 
         /** Initialize the resampler to be able to convert audio sample formats. */
@@ -444,8 +452,6 @@ namespace erizo {
         int data_present;
         int error = avcodec_decode_audio4(input_codec_context, input_frame, &data_present,&input_packet);
 
-        ELOG_DEBUG("After decode_audio4");
-
         if (error < 0)
         {
             ELOG_DEBUG("decoding error %s", get_error_text(error));
@@ -457,8 +463,6 @@ namespace erizo {
             ELOG_DEBUG("data not present");
             return 0;
         }
-
-        ELOG_DEBUG("decoded audio input_frame: nb_samples=%d", input_frame->nb_samples);
 
         // resample
 
