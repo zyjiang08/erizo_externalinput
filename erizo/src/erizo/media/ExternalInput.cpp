@@ -211,7 +211,7 @@ namespace erizo {
                 int64_t pts = av_rescale(lastAudioPts_, 1000000, (long int)audio_time_base_);
                 int64_t now = av_gettime() - startTime_;
                 if (pts > now){
-                    //av_usleep(pts - now);
+                    av_usleep(pts - now);
                 }
                 lastAudioPts_ = avpacket_.pts;
 
@@ -222,7 +222,7 @@ namespace erizo {
                 int len = audioDecoder.decodeAudio(avpacket_, outPacket);
                 if (len > 0)
                 {
-                    op_->packageAudio(outPacket.data, outPacket.size, avpacket_.pts);
+                    op_->packageAudio(outPacket.data,outPacket.size, avpacket_.pts);
                 }
             }
             av_free_packet(&orig_pkt);
@@ -244,6 +244,5 @@ namespace erizo {
             }
         }
     }
-
 }
 

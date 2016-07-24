@@ -97,7 +97,7 @@ namespace erizo {
          * If the sample rates differ, this case has to be handled differently
          */
 
-        ELOG_DEBUG( "audio input sample_rate = %d, out %d", output_codec_context->sample_rate, output_codec_context->sample_rate);
+        ELOG_DEBUG( "audio input sample_rate = %d, out %d", input_codec_context->sample_rate, output_codec_context->sample_rate);
 
         /** Open the resampler with the specified parameters. */
         if ((error = swr_init(resample_context)) < 0) {
@@ -369,7 +369,6 @@ namespace erizo {
 
         codec_ = dec_codec;
 
-        //input_codec_context = avcodec_alloc_context3(codec_);
         input_codec_context = context;  // ok?  ok
         if (!input_codec_context) {
             ELOG_DEBUG("AudioDecoder Error allocating audio decoder context");
@@ -381,6 +380,9 @@ namespace erizo {
             return 0;
         }
 
+        ELOG_DEBUG("decoder sample_fmts[0] is %s", av_get_sample_fmt_name(codec_->sample_fmts[0]));
+        ELOG_DEBUG("decoder sample_fmt is %s", av_get_sample_fmt_name(input_codec_context->sample_fmt));
+        ELOG_DEBUG("decoder frame size is %d", input_codec_context->frame_size);
 
         // Init output encoder as well.
         AVCodec *output_codec          = NULL;

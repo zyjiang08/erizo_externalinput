@@ -485,7 +485,7 @@ namespace erizo {
              */
             db = 20 * log10(rms);
 
-            ELOG_DEBUG("rms = %f, then db=%f", rms, db);
+            //ELOG_DEBUG("rms = %f, then db=%f", rms, db);
 
             //ELOG_DEBUG("db=%f", db);
             /*
@@ -610,8 +610,7 @@ namespace erizo {
         return sizesum;
     }
 
-    int OutputProcessor::packageVideo(unsigned char* inBuff, int buffSize, unsigned char* outBuff, 
-            long int pts) {
+    int OutputProcessor::packageVideo(unsigned char* inBuff, int buffSize, unsigned char* outBuff, long int pts) {
         if (videoPackager == 0) {
             ELOG_DEBUG("No se ha inicailizado el codec de output vídeo RTP");
             return -1;
@@ -635,9 +634,11 @@ namespace erizo {
             rtpHeader.setMarker(lastFrame?1:0);
             rtpHeader.setSeqNumber(seqnum_++);
             if (pts==0){
+                // the input pts is 0, todo:
+                // add pts as member of RawdataPacket.
                 rtpHeader.setTimestamp(av_rescale(millis, 90000, 1000)); 
             }else{
-                rtpHeader.setTimestamp(av_rescale(pts, 90000, 1000)); 
+                //rtpHeader.setTimestamp(av_rescale(pts, 90000, 1000)); 
 
             }
             rtpHeader.setSSRC(55543);
