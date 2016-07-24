@@ -196,17 +196,16 @@ namespace erizo {
         return 0;
     }
 
-    int AudioDecoder::encode_package_audio_frame(AVFrame *frame, unsigned char* outbuf)
+    int AudioDecoder::encode_audio_frame(AVFrame *frame, AVPacket& output_packet)
     {
         /** Packet used for temporary storage. */
-        AVPacket output_packet;
-        int error;
         init_packet(&output_packet);
 
         /**
          * Encode the audio frame and store it in the temporary packet.
          * The output audio stream encoder is used to do this.
          */
+        int error;
         int data_present = 0;
         if ((error = avcodec_encode_audio2(output_codec_context, &output_packet,
                         frame, &data_present)) < 0) {
@@ -215,20 +214,22 @@ namespace erizo {
             return error;
         }
 
-        // Package it, and send it.
-        //int ret = packageAudio(output_packet.data, output_packet.size, outbuf);
 
-        //free it.
-        av_free_packet(&output_packet);
+        if (0 == data_present)
+        {
+            ELOG_WARN("encode failed!! data not present");
+            return 0;
+        }
 
-        return 0;
+
+        return output_packet.size;
     }
 
     /**
      * Load one audio frame from the FIFO buffer, encode and write it to the
      * output file.
      */
-    int AudioDecoder::load_encode_and_write(unsigned char* outbuf)
+    int AudioDecoder::load_encode(AVPacket& output_packet)
     {
         /** Temporary storage of the output samples of the frame written to the file. */
         AVFrame *output_frame;
@@ -255,7 +256,7 @@ namespace erizo {
             return 0;
         }
         /** Encode one frame worth of audio samples. */
-        int pktlen = encode_package_audio_frame(output_frame, outbuf);
+        int pktlen = encode_audio_frame(output_frame, output_packet);
         if (pktlen <= 0)
         {
             ELOG_WARN("Failed to encode_audio_frame!!");
@@ -382,7 +383,6 @@ namespace erizo {
 
 
         // Init output encoder as well.
-        AVCodecContext *avctx          = NULL;
         AVCodec *output_codec          = NULL;
         int error;
 
@@ -390,8 +390,8 @@ namespace erizo {
             ELOG_DEBUG( "Could not find the encoder.");
             return 0;
         }
-        avctx = avcodec_alloc_context3(output_codec);
-        if (!avctx) {
+        output_codec_context = avcodec_alloc_context3(output_codec);
+        if (!output_codec_context) {
             ELOG_DEBUG( "Could not allocate an encoding context");
             return 0;
         }
@@ -400,25 +400,25 @@ namespace erizo {
          * Set the basic encoder parameters.
          * The input file's sample rate is used to avoid a sample rate conversion.
          */
-        avctx->channels       = OUTPUT_CHANNELS;
-        avctx->channel_layout = av_get_default_channel_layout(OUTPUT_CHANNELS);
-        //avctx->sample_rate    = OUTPUT_SAMPLE_RATE;
-        avctx->sample_rate    = input_codec_context->sample_rate;
-        avctx->sample_fmt     = output_codec->sample_fmts[0];   // should be u8
-        avctx->bit_rate       = OUTPUT_BIT_RATE;
-        /** Allow the use of the experimental AAC encoder */
-        avctx->strict_std_compliance = FF_COMPLIANCE_EXPERIMENTAL;
+        output_codec_context->channels       = OUTPUT_CHANNELS;
+        output_codec_context->channel_layout = av_get_default_channel_layout(OUTPUT_CHANNELS);
+        output_codec_context->sample_rate    = OUTPUT_SAMPLE_RATE;
+        //output_codec_context->sample_rate    = input_codec_context->sample_rate;
+        output_codec_context->sample_fmt     = output_codec->sample_fmts[0]; //u8
+        output_codec_context->bit_rate       = OUTPUT_BIT_RATE;
 
-        av_assert0(avctx->sample_fmt == AV_SAMPLE_FMT_U8);
+        /** Allow the use of the experimental feature */
+        output_codec_context->strict_std_compliance = FF_COMPLIANCE_EXPERIMENTAL;
 
         /** Open the encoder for the audio stream to use it later. */
-        if ((error = avcodec_open2(avctx, output_codec, NULL)) < 0) {
+        if ((error = avcodec_open2(output_codec_context, output_codec, NULL)) < 0) {
             ELOG_DEBUG("Could not open output codec %s", get_error_text(error));
             return 0;
         }
-
-        /** Save the encoder context for easier access later. */
-        output_codec_context = avctx;
+        
+        output_codec_context->frame_size = 1024;
+        av_assert0(output_codec_context->sample_fmt == AV_SAMPLE_FMT_U8);
+        av_assert0(output_codec_context->frame_size > 0);
 
         /** Initialize the resampler to be able to convert audio sample formats. */
         if (init_resampler(input_codec_context, output_codec_context))
@@ -433,25 +433,30 @@ namespace erizo {
 
         return 1;
     }
-    int AudioDecoder::decodeAudio(AVPacket& input_packet, unsigned char* outbuf)    {
+    int AudioDecoder::decodeAudio(AVPacket& input_packet, AVPacket& outPacket)    {
+        ELOG_DEBUG("decoding input packet, size %d", input_packet.size);
+        
         AVFrame* input_frame;
         init_frame(&input_frame);
 
-        ELOG_DEBUG("decoding input packet, size %d", input_packet.size);
-        int* data_present = 0;
-        int error = avcodec_decode_audio4(input_codec_context, input_frame, data_present,&input_packet);
+        int data_present;
+        int error = avcodec_decode_audio4(input_codec_context, input_frame, &data_present,&input_packet);
+
+        ELOG_DEBUG("After decode_audio4");
 
         if (error < 0)
         {
-            ELOG_DEBUG("error %s", get_error_text(error));
+            ELOG_DEBUG("decoding error %s", get_error_text(error));
             return error;
         }
 
-        if (*data_present <= 0)
+        if (data_present <= 0)
         {
             ELOG_DEBUG("data not present");
             return 0;
         }
+
+        ELOG_DEBUG("decoded audio input_frame: nb_samples=%d", input_frame->nb_samples);
 
         // resample
 
@@ -470,7 +475,6 @@ namespace erizo {
         if (convert_samples((const uint8_t**)input_frame->extended_data, converted_input_samples,input_frame->nb_samples, resample_context))
         {
             ELOG_WARN("convert_samples failed!!");
-
             return 0;
         }
 
@@ -482,7 +486,7 @@ namespace erizo {
         }
 
         // meanwhile, encode; package
-        return load_encode_and_write(outbuf);
+        return load_encode(outPacket);
     }
 
     int AudioDecoder::closeDecoder(){

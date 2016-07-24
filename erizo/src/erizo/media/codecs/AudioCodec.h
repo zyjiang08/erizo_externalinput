@@ -43,7 +43,7 @@ namespace erizo {
       AudioDecoder();
       virtual ~AudioDecoder();
       int initDecoder(AVCodecContext* context, AVCodec* dec_codec);
-      int decodeAudio(AVPacket& input_packet, unsigned char* outbuf);
+      int decodeAudio(AVPacket& input_packet, AVPacket& output_packet);
       int closeDecoder();
 
       ////////////////added func so logger inside available//////////////////
@@ -52,8 +52,8 @@ namespace erizo {
 
       int init_fifo(AVAudioFifo **fifo);
       int init_output_frame(AVFrame **frame, AVCodecContext *output_codec_context, int frame_size);
-      int encode_package_audio_frame(AVFrame *frame, unsigned char* outbuf);
-      int load_encode_and_write(unsigned char* outbuf);
+      int encode_audio_frame(AVFrame *frame, AVPacket& output_packet);
+      int load_encode(AVPacket& output_packet);
       int init_converted_samples(uint8_t ***converted_input_samples, AVCodecContext *output_codec_context, int frame_size);
       int convert_samples(const uint8_t **input_data, uint8_t **converted_data, const int frame_size, SwrContext *resample_context);
      ////////////// 

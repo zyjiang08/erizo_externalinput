@@ -180,56 +180,49 @@ namespace erizo {
 
         ELOG_INFO("Start playing external input %s", url_.c_str() );
         ELOG_INFO("needTranscoding_=%d", needTranscoding_);
-        
+
         while(av_read_frame(context_,&avpacket_)>=0&& running_==true){
             AVPacket orig_pkt = avpacket_;
-            if (needTranscoding_){
-                if(avpacket_.stream_index == video_stream_index_){
+            if(avpacket_.stream_index == video_stream_index_){
 
-                    // Speed control.
-                    //int64_t pts = av_rescale(lastPts_, 1000000, (long int)video_time_base_);
-                    //int64_t now = av_gettime() - startTime_;         
-                    //if (pts > now){
-                    //    av_usleep(pts - now);
-                    //}
-                    //lastPts_ = avpacket_.pts;
-
-                    ELOG_DEBUG("read video packet size %d", avpacket_.size);
-                    int len = inCodec_.decodeVideo(avpacket_.data, avpacket_.size, decodedBuffer_.get(), bufflen_, &gotDecodedFrame);
-                    RawDataPacket packetR;
-                    if (gotDecodedFrame){
-                        ELOG_DEBUG("gotDecodedFrame length %d",len);
-                        packetR.data = decodedBuffer_.get();
-                        packetR.length = len;
-                        packetR.type = VIDEO;
-                        queueMutex_.lock();
-                        packetQueue_.push(packetR);
-                        queueMutex_.unlock();
-                        gotDecodedFrame=0;
-                    }
+                // Speed control.
+                int64_t pts = av_rescale(lastPts_, 1000000, (long int)video_time_base_);
+                int64_t now = av_gettime() - startTime_;         
+                if (pts > now){
+                    av_usleep(pts - now);
                 }
-            }else{
-                if(avpacket_.stream_index == video_stream_index_){//packet is video               
-                    int64_t pts = av_rescale(lastPts_, 1000000, (long int)video_time_base_);
-                    int64_t now = av_gettime() - startTime_;         
-                    if (pts > now){
-                        av_usleep(pts - now);
-                    }
-                    lastPts_ = avpacket_.pts;
+                lastPts_ = avpacket_.pts;
 
-                    ELOG_DEBUG("Video and package %d, dts=%ld,duration=%d,pos=%ld, pts=%ld", avpacket_.size, avpacket_.dts, avpacket_.duration, avpacket_.pos, avpacket_.pts);
-                    op_->packageVideo(avpacket_.data, avpacket_.size, decodedBuffer_.get(), avpacket_.pts);
-                }else if(avpacket_.stream_index == audio_stream_index_){//packet is audio
-                    int64_t pts = av_rescale(lastAudioPts_, 1000000, (long int)audio_time_base_);
-                    int64_t now = av_gettime() - startTime_;
-                    if (pts > now){
-                        av_usleep(pts - now);
-                    }
-                    lastAudioPts_ = avpacket_.pts;
+                ELOG_DEBUG("read video packet size %d", avpacket_.size);
+                int len = inCodec_.decodeVideo(avpacket_.data, avpacket_.size, decodedBuffer_.get(), bufflen_, &gotDecodedFrame);
+                RawDataPacket packetR;
+                if (gotDecodedFrame){
+                    ELOG_DEBUG("gotDecodedFrame length %d",len);
+                    packetR.data = decodedBuffer_.get();
+                    packetR.length = len;
+                    packetR.type = VIDEO;
+                    queueMutex_.lock();
+                    packetQueue_.push(packetR);
+                    queueMutex_.unlock();
+                    gotDecodedFrame=0;
+                }
+            }
+            else if(avpacket_.stream_index == audio_stream_index_){//packet is audio
+                int64_t pts = av_rescale(lastAudioPts_, 1000000, (long int)audio_time_base_);
+                int64_t now = av_gettime() - startTime_;
+                if (pts > now){
+                    //av_usleep(pts - now);
+                }
+                lastAudioPts_ = avpacket_.pts;
 
-                    ELOG_DEBUG("Audio and package %d ==> length, dts=%ld,duration=%d,pos=%ld, pts=%ld", avpacket_.size, avpacket_.dts, avpacket_.duration, avpacket_.pos, avpacket_.pts);
+                ELOG_DEBUG("Got Audio packet size=%d, dts=%ld,duration=%d,pos=%ld, pts=%ld", avpacket_.size, avpacket_.dts, avpacket_.duration, avpacket_.pos, avpacket_.pts);
 
-                    op_->packageAudio(avpacket_.data, avpacket_.size, decodedBuffer_.get(), avpacket_.pts);
+                // decode, and send.
+                AVPacket outPacket;
+                int len = audioDecoder.decodeAudio(avpacket_, outPacket);
+                if (len > 0)
+                {
+                    op_->packageAudio(outPacket.data, outPacket.size, avpacket_.pts);
                 }
             }
             av_free_packet(&orig_pkt);

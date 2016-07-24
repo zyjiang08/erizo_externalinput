@@ -517,25 +517,27 @@ namespace erizo {
 
   }
 
-  int OutputProcessor::packageAudio(unsigned char* inBuff2, int inBuffLen2,
-            unsigned char* outBuff, long int pts) {
+  int OutputProcessor::packageAudio(unsigned char* data, int datalen,
+             long int pts) {
 
         // 20ms => 160 * 1000 * 1/8000 ( time_base )
-        const int FrameSize = 160;    
+        const int FrameSize = 160;    //*6 because samplerate 48000/8000
         static unsigned char extraBuff[FrameSize];
 
         static int extraBuffLen = 0;
+        static unsigned char outBuff[1500];
 
         if (audioPackager == 0) {
             ELOG_DEBUG("No se ha inicializado el codec audio RTP!!");
             return -1;
         }
 
+        ELOG_DEBUG("packaugeAudio len %d, pts %ld", datalen, pts);
         int sizesum = 0;
 
         // Process the data left from last packet.
         pts -= extraBuffLen;
-        int inBuffLen = inBuffLen2 + extraBuffLen;
+        int inBuffLen = datalen + extraBuffLen;
 
         ELOG_DEBUG("Take the extra %d, in all %d, and pts starts %ld", extraBuffLen, inBuffLen, pts);
 
@@ -543,7 +545,7 @@ namespace erizo {
         unsigned char* allocated = inBuff;  // for delete[] at end.
 
         memcpy(inBuff, extraBuff, extraBuffLen);
-        memcpy(inBuff+extraBuffLen, inBuff2, inBuffLen2);
+        memcpy(inBuff+extraBuffLen, data, datalen);
 
         //    timeval time;
         //    gettimeofday(&time, NULL);
@@ -555,9 +557,9 @@ namespace erizo {
             head.setSeqNumber(audioSeqnum_++);
             head.setMarker(false);
 
-                head.setExtension(true);
-                head.setExtId(48862); //0xbede profile
-                head.setExtLength(1);       // only 1 ext, Audio level.
+            head.setExtension(true);
+            head.setExtId(48862); //0xbede profile
+            head.setExtLength(1);       // only 1 ext, Audio level.
 
             if (pts==-1){
             }else{
@@ -568,14 +570,14 @@ namespace erizo {
                 ext.init();
                 int audioLevel = -calculateAudioLevel(inBuff, 0,FrameSize, 127);
 
-                ELOG_DEBUG("Calculated audio level=%d", audioLevel);
+                //ELOG_DEBUG("Calculated audio level=%d", audioLevel);
 
                 ext.level = audioLevel;
                 uint16_t val = *(reinterpret_cast<uint16_t*>(&ext));
                 //val = htonl(val); // don't need it.
                 head.extensions = val;
 
-                ELOG_DEBUG("head.extensions = %hu", head.extensions);
+                //ELOG_DEBUG("head.extensions = %hu", head.extensions);
 
                 // next timestamp will +FrameSize;
                 pts += FrameSize;

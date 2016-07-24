@@ -159,10 +159,8 @@ public:
   void close();
 	void receiveRawData(RawDataPacket& packet);
 
-  int packageAudio(unsigned char* inBuff, int inBuffLen,
-			unsigned char* outBuff, long int pts = 0);
-
-	int packageVideo(unsigned char* inBuff, int buffSize, unsigned char* outBuff,
+  int packageAudio(unsigned char* inBuff, int inBuffLen, long int pts = 0);
+  int packageVideo(unsigned char* inBuff, int buffSize, unsigned char* outBuff,
       long int pts = 0);
 
 private:
