@@ -424,12 +424,7 @@ namespace erizo {
         ELOG_DEBUG("output sample_fmt is %s", av_get_sample_fmt_name(output_codec_context->sample_fmt));
         ELOG_DEBUG("output frame size is %d", output_codec_context->frame_size);
         
-        //output_codec_context->frame_size = input_codec_context->frame_size;
-        output_codec_context->frame_size = 960; // 20 ms frame. 20/1000 * 48000
-
-        //av_assert0(output_codec_context->sample_fmt == AV_SAMPLE_FMT_U8);
-        av_assert0(output_codec_context->frame_size > 0);
-
+        output_codec_context->frame_size = 960; //20ms. actually no need, as it already is
         /** Initialize the resampler to be able to convert audio sample formats. */
         if (init_resampler(input_codec_context, output_codec_context))
         {
@@ -490,6 +485,8 @@ namespace erizo {
         {
             ELOG_WARN("add_samples to fifo failed !!");
         }
+
+        outPacket.pts = input_packet.pts;
 
         // meanwhile, encode; package
         return load_encode(outPacket);

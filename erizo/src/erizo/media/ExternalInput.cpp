@@ -129,14 +129,15 @@ namespace erizo {
             needTranscoding_=true;
             inCodec_.initDecoder(st->codec);
 
+            ELOG_DEBUG("Video width:%d, height:%d", st->codec->width, st->codec->height);
             bufflen_ = st->codec->width*st->codec->height*3/2;
             decodedBuffer_.reset((unsigned char*) malloc(bufflen_));
 
             om.processorType = RTP_ONLY;
             om.videoCodec.codec = VIDEO_CODEC_VP8;
             om.videoCodec.bitRate = 1000000;
-            om.videoCodec.width = 854;
-            om.videoCodec.height = 480;
+            om.videoCodec.width = st->codec->width;
+            om.videoCodec.height = st->codec->height;
             om.videoCodec.frameRate = 20;
             om.hasVideo = true;
 
