@@ -61,6 +61,8 @@ namespace erizo {
             return res;
         }
 
+        ELOG_DEBUG("url opened");
+
         MediaInfo om;
         AVStream *st, *audio_st;
         AVCodec* audioCodec = NULL;

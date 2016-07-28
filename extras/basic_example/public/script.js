@@ -6,7 +6,8 @@ var showLegalCase=function()
              console.log("showLegalCase");
             var conf={video: true, audio: true,
 
-                url:"file:///workspace/share/big_buk.mov"
+                //url:"file:///workspace/share/big_buk.mov"
+                url:"rtsp://user1:222222@111.198.38.42:8554/stream"
                     //url:"file:///workspace/share/elep.webm", 
                     //url:"file:///workspace/share/PCM_Mono_8b_8000Hz.wav", 
                     //url:"rtsp://184.72.239.149/vod/mp4:BigBuckBunny_115k.mov",
