@@ -36,7 +36,7 @@ find_package(Boost COMPONENTS ${BOOST_LIBS} REQUIRED)
 target_link_libraries(erizo ${Boost_LIBRARIES})
 
 # GTHREAD
-find_library(GTHREAD gthread-2.0 HINTS "${THIRD_PARTY_LIB}")
+find_library(GTHREAD gthread-2.0 HINTS )
 test_lib(${GTHREAD})
 
 # SRTP
@@ -54,14 +54,14 @@ find_library(CRYPTO crypto HINTS "${THIRD_PARTY_LIB}")
 test_lib(${CRYPTO})
 
 # Libav
-find_library(AVUTIL avutil HINTS "${THIRD_PARTY_LIB}")
+find_library(AVUTIL avutil)
 test_lib(${AVUTIL})
 set (LIBS ${AVUTIL})
 
-find_library(AVCODEC avcodec HINTS "${THIRD_PARTY_LIB}")
+find_library(AVCODEC avcodec )
 test_lib(${AVCODEC})
 set (LIBS ${LIBS} ${AVCODEC})
-find_library(AVFORMAT avformat HINTS "${THIRD_PARTY_LIB}")
+find_library(AVFORMAT avformat)
 test_lib(${AVFORMAT})
 set (LIBS ${LIBS} ${AVFORMAT})
 
